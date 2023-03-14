@@ -7,6 +7,7 @@ import socket
 import threading
 import carb.events
 import omni.kit.app
+from datetime import datetime
 
 # Functions and vars are available to other extension as usual in python: `example.python_ext.some_public_function(x)`
 def some_public_function(x: int):
@@ -35,47 +36,52 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
             self._window = None
             
         self._connect_staus = False
-        self._UDPServerSocket.shutdown(socket.SHUT_RDWR)
+        # if self._freeD_thread.is_alive():
+        #     self._freeD_thread.join()
+        self._UDPServerSocket.close()
         print("[omni.FreeD.LiveLink] omni FreeD LiveLink shutdown")
         
     def _init_var(self):
-        pass
-        
-    def on_startup(self, ext_id):
-        print("[omni.FreeD.LiveLink] omni FreeD LiveLink startup")
 
-        self._window = ui.Window("FreeD Live Link", width=300, height=200)
         self._source_prim_model_a = ui.SimpleStringModel()
         self._udp_ip = ui.SimpleStringModel()
         self._udp_port = ui.SimpleIntModel()
 
-        self._udp_ip.as_string = "127.0.0.1"
-        self._udp_port.as_int = 40001
-        self._bufferSize = 1024
-        self._connect_staus = False
-
         self.__label_width = LABEL_WIDTH
         self.__button_width = BUTTON_WIDTH
         self.__button_height = BUTTON_HEIGHT
-
         self._stage = omni.usd.get_context().get_stage()
+
+    def _register_event(self):
         # Event is unique integer id. Create it from string by hashing, using helper function.
         # [ext name].[event name] is a recommended naming convention:
         self._Udp_update_EVENT = carb.events.type_from_string("omni.freelink.extension.udp_update")
         self._bus = omni.kit.app.get_app().get_message_bus_event_stream()
         
-        #self.sub1 = self._bus.create_subscription_to_push_by_type(self._Udp_update_EVENT, self.on_event)
-        # Pop is called on next update
+        # Pop is called on next update, while push is excute immediately  
+        # elf.sub1 = self._bus.create_subscription_to_push_by_type(self._Udp_update_EVENT, self.on_event)
         self.sub2 = self._bus.create_subscription_to_pop_by_type(self._Udp_update_EVENT, self.on_event)
-        
+
+    def _init_udp_server(self):
+        self._udp_ip.as_string = "127.0.0.1"
+        self._udp_port.as_int = 40001
+        self._bufferSize = 1024
+        self._connect_staus = False
+
+        self._UDPServerSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
+        self._UDPServerSocket.bind((self._udp_ip.as_string, self._udp_port.as_int))
+
+    def on_startup(self, ext_id):
+        print("[omni.FreeD.LiveLink] omni FreeD LiveLink startup")  
+        self._window = ui.Window("FreeD Live Link", width=300, height=200)
+
         with self._window.frame:
             with ui.VStack():
                 self._init_var()
                 self._build_widget()
-                
-                self._UDPServerSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
-                self._UDPServerSocket.bind((self._udp_ip.as_string, self._udp_port.as_int))
-        
+                self._init_udp_server()
+                self._register_event()
+
     def on_event(self, e):
         print(e.type, e.type == self._Udp_update_EVENT, e.payload)
         print("on_event called")
@@ -93,15 +99,16 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
     def on_start_listener(self):
         if not self._connect_staus:
             self._freeD_thread = threading.Thread(target=self._startUPDServer)
-            self._freeD_thread.start()
             self._connect_staus = True
+            self._freeD_thread.start()
             self._startbtn.text = "Stop"
-            
-            #self._startUPDServer()
         else:
-            self._UDPServerSocket.shutdown(socket.SHUT_RDWR)
-            self._startbtn.text = "Start"
-            self._connect_staus = False
+            self._tipslabel.text = "Send just one byte via UDP to close the Socket"
+
+        # else:
+        #     self._UDPServerSocket.shutdown(socket.SHUT_RDWR)
+        #     self._startbtn.text = "Start"
+        #     self._connect_staus = False
 
         #self._updThread()
         print("on_start_listener")
@@ -155,7 +162,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         The method that is called to build all the UI once the window is
         visible.
         """
-        self._window.frame.style = livelink_window_style 
+        self._window.frame.style = livelink_window_style
         with ui.ScrollingFrame():
             with ui.VStack(height=0):
                 self._build_camera_source()
@@ -169,12 +176,20 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
                 message = bytesAddressPair[0]
                 address = bytesAddressPair[1]
                 msg = "Message from Client {}".format(address)
-                self._update_tips(msg)
-                self._calculate_camera(message)
+                self._update_tips(message)
+
+                #send a byte the UPD server will close
+                #Should use epoll to handle udp server, TODO later
+                if len(message) == 1:
+                    self._connect_staus = False
+                    self._tipslabel.text = "Receive 1byte disconnected"
+                    self._startbtn.text = "Start"
+                else:
+                    self._calculate_camera(message)
 
         #TODO:  block in recvfrom
-        self._UDPServerSocket.shutdown(socket.SHUT_RDWR)
-        #UDPServerSocket.close()
+        #self._UDPServerSocket.shutdown(socket.SHUT_RDWR)
+        self._UDPServerSocket.close()
 
     def _calculate_camera(self, freeD):
         #Parse the FreeDinfo
@@ -218,7 +233,8 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         self._bus.push(self._Udp_update_EVENT, payload=camare_update_data)
 
     def _update_tips(self, textinfo):
-        self._tipslabel.text = "FreeD Data Update:"+textinfo
+        #self._tipslabel.text = "FreeD:" + str(datetime.hour) + ":" + str(datetime.minute) + ":" + str(datetime.second) + " " + textinfo
+        self._tipslabel.text = "FreeD:" + str(textinfo)
 
     @property
     def label_width(self):
