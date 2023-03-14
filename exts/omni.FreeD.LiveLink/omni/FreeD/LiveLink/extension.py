@@ -1,9 +1,12 @@
 import omni.ext
+import omni.usd
 import omni.ui as ui
 from .utils import get_selection
 from .style import livelink_window_style
 import socket
 import threading
+import carb.events
+import omni.kit.app
 
 # Functions and vars are available to other extension as usual in python: `example.python_ext.some_public_function(x)`
 def some_public_function(x: int):
@@ -14,6 +17,7 @@ LABEL_WIDTH = 120
 BUTTON_WIDTH = 120
 BUTTON_HEIGHT = 80
 SPACING = 4
+BUFFERSIZE  = 1024
 
 # Any class derived from `omni.ext.IExt` in top level module (defined in `python.modules` of `extension.toml`) will be
 # instantiated when extension gets enabled and `on_startup(ext_id)` will be called. Later when extension gets disabled
@@ -31,17 +35,17 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
             self._window = None
             
         self._connect_staus = False
-        self._freeD_thread.join()
+        self._UDPServerSocket.shutdown(socket.SHUT_RDWR)
         print("[omni.FreeD.LiveLink] omni FreeD LiveLink shutdown")
         
-
+    def _init_var(self):
+        pass
+        
     def on_startup(self, ext_id):
         print("[omni.FreeD.LiveLink] omni FreeD LiveLink startup")
 
         self._window = ui.Window("FreeD Live Link", width=300, height=200)
-
         self._source_prim_model_a = ui.SimpleStringModel()
-
         self._udp_ip = ui.SimpleStringModel()
         self._udp_port = ui.SimpleIntModel()
 
@@ -53,26 +57,52 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         self.__label_width = LABEL_WIDTH
         self.__button_width = BUTTON_WIDTH
         self.__button_height = BUTTON_HEIGHT
-        
-        #self._freeD_thread = _thread.start_new_thread(target = self._updThread， args=(self))
 
+        self._stage = omni.usd.get_context().get_stage()
+        # Event is unique integer id. Create it from string by hashing, using helper function.
+        # [ext name].[event name] is a recommended naming convention:
+        self._Udp_update_EVENT = carb.events.type_from_string("omni.freelink.extension.udp_update")
+        self._bus = omni.kit.app.get_app().get_message_bus_event_stream()
+        
+        #self.sub1 = self._bus.create_subscription_to_push_by_type(self._Udp_update_EVENT, self.on_event)
+        # Pop is called on next update
+        self.sub2 = self._bus.create_subscription_to_pop_by_type(self._Udp_update_EVENT, self.on_event)
+        
         with self._window.frame:
             with ui.VStack():
+                self._init_var()
                 self._build_widget()
                 
-                # label = ui.Label("")
-                # def on_click():
-                #     self._count += 1
-                #     label.text = f"count: {self._count}"
-
-                # def on_reset():
-                #     self._count = 0
-                #     label.text = "empty"
+                self._UDPServerSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
+                self._UDPServerSocket.bind((self._udp_ip.as_string, self._udp_port.as_int))
         
-        self._freeD_thread = threading.Thread(target = self._udpThread)
-        self._freeD_thread.start()
+    def on_event(self, e):
+        print(e.type, e.type == self._Udp_update_EVENT, e.payload)
+        print("on_event called")
+        self._update_camera(e.payload)
+        
+    def _update_camera(self, camera_payload):
+        if len(self._source_prim_model_a.as_string) != 0:
+            #{'rotate': new_rotate, 'pos': new_translate, 'zoom': camera_zoom, 'focus': camera_focus}
+            #cameraPrim = omni.usd.get_context().get_stage().GetPrimAtPath(self._source_prim_model_a.as_string)
+            self._cameraPrim.GetAttribute('xformOp:translate').Set(camera_payload['pos'])
+            self._cameraPrim.GetAttribute('focalLength').Set(camera_payload['zoom'])
+            self._cameraPrim.GetAttribute('xformOp:rotateYXZ').Set(camera_payload['rotate'])
+            #self.cameraPrim.GetAttribute('focusDistance').Set(camera_payload['focus'])
 
     def on_start_listener(self):
+        if not self._connect_staus:
+            self._freeD_thread = threading.Thread(target=self._startUPDServer)
+            self._freeD_thread.start()
+            self._connect_staus = True
+            self._startbtn.text = "Stop"
+            
+            #self._startUPDServer()
+        else:
+            self._UDPServerSocket.shutdown(socket.SHUT_RDWR)
+            self._startbtn.text = "Start"
+            self._connect_staus = False
+
         #self._updThread()
         print("on_start_listener")
 
@@ -85,7 +115,8 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
     def _on_get_selection(self, model):
         """Called when the user presses the "Get From Selection" button"""
         model.as_string = ", ".join(get_selection())
-        print('model name is:{}'.format(model.as_string))
+        self._cameraPrim = omni.usd.get_context().get_stage().GetPrimAtPath(self._source_prim_model_a.as_string)
+        print('_cameraPrim name is:{}'.format(self._cameraPrim))
 
     def _build_camera_source(self):
         with ui.CollapsableFrame("Source", name="group"):
@@ -114,7 +145,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
                     ui.Label("UDP Port", name="attribute_name", width=self.label_width)
                     ui.IntDrag(self._udp_port, min=0, max=65535)
                 with ui.HStack():
-                    ui.Button("Start", clicked_fn=self.on_start_listener, width=self.button_width)
+                    self._startbtn = ui.Button("Start", clicked_fn=self.on_start_listener, width=self.button_width)
                     self._tipslabel = ui.Label("disconected", name="livelink_tips", width=self.label_width)
                     #ui.Label(model=self._connect_tips, name="livelink_tips",width=self.label_width)
                     #ui.Button("Stop", clicked_fn=self.on_stop_listener, width=self.button_width, enabled=False)
@@ -130,33 +161,64 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
                 self._build_camera_source()
                 self._build_livelink()
         
-
-    def _udpThread(self):
-        msgFromClient       = "Hello From OV Livelink UDP Client"
-        bytesToSend         = str.encode(msgFromClient)
-        #serverAddressPort   = (self._udp_ip, self._udp_port)
-        serverAddressPort   = ("127.0.0.1", 20001)
-        self._connect_staus = True
-        # Create a UDP socket at client side
-        UDPClientSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
-        
-        # Send to server using created UDP socket
-        #while(true):
+    def _startUPDServer(self):
+        ## Should I run in a thread? seems that will cause a hang and cant get the right prim...
         while (self._connect_staus):
-            UDPClientSocket.sendto(bytesToSend, serverAddressPort)
-            msgFromServer = UDPClientSocket.recvfrom(self._bufferSize)
-            msg = "Message from Server {}".format(msgFromServer[0])
-            self._update_tips(msg)
-          
-        UDPClientSocket.close()
-        
+                bytesAddressPair = self._UDPServerSocket.recvfrom(BUFFERSIZE)
 
-    def _update_camera(self, freeD):
+                message = bytesAddressPair[0]
+                address = bytesAddressPair[1]
+                msg = "Message from Client {}".format(address)
+                self._update_tips(msg)
+                self._calculate_camera(message)
+
+        #TODO:  block in recvfrom
+        self._UDPServerSocket.shutdown(socket.SHUT_RDWR)
+        #UDPServerSocket.close()
+
+    def _calculate_camera(self, freeD):
         #Parse the FreeDinfo
-        pass
+        bit24 = (1 << 23)
+        frame_pos_header = str(freeD[0:2])
+        camera_id = int(freeD[2:4],16)
+
+        #Rotate: Yaw, Pitch, Roll
+        _sign = -1 if int(freeD[4:10], 16) & bit24 == 1 else 1
+        camera_pitch = _sign * (int(freeD[4:10], 16) & (bit24 - 1)) / 32678
+
+        _sign = -1 if int(freeD[10:16], 16) & bit24 == 1 else 1
+        camera_yaw = _sign * (int(freeD[10:16], 16) & (bit24 - 1)) / 32678
+
+        _sign = -1 if int(freeD[16:22], 16) & bit24 == 1 else 1
+        camera_roll = _sign * (int(freeD[16:22], 16) & (bit24 - 1)) / 32678
+
+        new_rotate = (camera_yaw, camera_pitch, camera_roll)
+        # Translate X,Y,Z
+        _sign = -1 if int(freeD[22:28], 16) & bit24 == 1 else 1
+        camera_pos_x = _sign * (int(freeD[22:28], 16) & (bit24 - 1)) / 64
+
+        _sign = -1 if int(freeD[28:34], 16) & bit24 == 1 else 1
+        camera_pos_y = _sign * (int(freeD[28:34], 16) & (bit24 - 1)) / 64
+
+        _sign = -1 if int(freeD[34:40], 16) & bit24 == 1 else 1
+        camera_pos_z = _sign * (int(freeD[34:40], 16) & (bit24 - 1)) / 64
+
+        # RotateYXZ
+        new_translate = (camera_pos_y, camera_pos_x, camera_pos_z)
+        #Zoon Focus
+        camera_zoom = int(freeD[40:46], 16)
+        camera_focus = int(freeD[46:52], 16)
+
+        reserve_ = int(freeD[52:56], 16)
+        freed_crc = int(freeD[56:58], 16)
+        #check crc further sum all then = crc?
+
+        camare_update_data = {'rotate': new_rotate, 'pos': new_translate, 'zoom': camera_zoom, 'focus': camera_focus}
+
+        self._bus.push(self._Udp_update_EVENT, payload=camare_update_data)
 
     def _update_tips(self, textinfo):
-        self._tipslabel.text = textinfo
+        self._tipslabel.text = "FreeD Data Update:"+textinfo
 
     @property
     def label_width(self):

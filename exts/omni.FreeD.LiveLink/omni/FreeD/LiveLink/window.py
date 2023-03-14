@@ -24,23 +24,6 @@ class FreeDLiveLinkWindow(ui.Window):
     def __init__(self, title: str, delegate=None, **kwargs):
         self.__label_width = LABEL_WIDTH
         super().__init__(title, **kwargs)
-        # Models
-        self._source_prim_model_a = ui.SimpleStringModel()
-
-        #UPD
-        self._udp_ip = ui.SimpleStringModel()
-        self._udp_port = ui.SimpleIntModel()
-        self._udp_ip.as_string = "127.0.0.1"
-        self._udp_port.as_int = 40001
-
-        self._bufferSize = 1024
-        self._connect_staus = False
-
-        #widget size
-        self.__label_width = LABEL_WIDTH
-        self.__button_width = BUTTON_WIDTH
-        self.__button_height = BUTTON_HEIGHT
-        self.frame.set_build_fn(self._build_fn)
 
     def destroy(self):
         # It will destroy all the children
