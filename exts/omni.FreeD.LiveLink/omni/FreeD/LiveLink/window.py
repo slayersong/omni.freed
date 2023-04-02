@@ -8,25 +8,71 @@
 #
 __all__ = ["FreeDLiveLinkWindow"]
 import omni.ui as ui
-from .style import scatter_window_style
+from .style import livelink_window_style
 from .utils import get_selection
 import omni.usd
-
+import socket
+import threading
+import carb.events
 
 LABEL_WIDTH = 120
 BUTTON_WIDTH = 120
 BUTTON_HEIGHT = 80
 SPACING = 4
+FREED_DATA_LENGTH = 29
+BUFFERSIZE = 1024
 
 class FreeDLiveLinkWindow(ui.Window):
+    
+    WINDOW_NAME = "FreeDLiveLink Window"
+    MENU_PATH = f"Window/{WINDOW_NAME}"
+    
     """The class that represents the window"""
     def __init__(self, title: str, delegate=None, **kwargs):
         self.__label_width = LABEL_WIDTH
         super().__init__(title, **kwargs)
 
     def destroy(self):
+        
+        self._connect_staus = False
+        if self._freeD_thread.is_alive():
+            self._freeD_thread.join()
+
+        self._UDPServerSocket.close()
+        print("[omni.FreeD.LiveLink] omni FreeD LiveLink shutdown")
         # It will destroy all the children
         super().destroy()
+
+    def _init_var(self):
+
+        self._source_prim_model_a = ui.SimpleStringModel()
+        self._udp_ip = ui.SimpleStringModel()
+        self._udp_port = ui.SimpleIntModel()
+
+        self.__label_width = LABEL_WIDTH
+        self.__button_width = BUTTON_WIDTH
+        self.__button_height = BUTTON_HEIGHT
+        self._stage = omni.usd.get_context().get_stage()
+
+    def _register_event(self):
+        # Event is unique integer id. Create it from string by hashing, using helper function.
+        # [ext name].[event name] is a recommended naming convention:
+        self._Udp_update_EVENT = carb.events.type_from_string("omni.freelink.extension.udp_update")
+        self._bus = omni.kit.app.get_app().get_message_bus_event_stream()
+        
+        # Pop is called on next update, while push is excute immediately  
+        # elf.sub1 = self._bus.create_subscription_to_push_by_type(self._Udp_update_EVENT, self.on_event)
+        self.sub2 = self._bus.create_subscription_to_pop_by_type(self._Udp_update_EVENT, self.on_event)
+
+    def _init_udp_server(self):        
+        self._udp_ip.as_string = "127.0.0.1"
+        self._udp_port.as_int = 40001
+        self._bufferSize = 1024
+        self._connect_staus = False
+
+        self._UDPServerSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
+        self._UDPServerSocket.bind((self._udp_ip.as_string, self._udp_port.as_int))
+        
     def on_stop_listener(self):
         print("on_stop_listener")
 
@@ -96,6 +142,48 @@ class FreeDLiveLinkWindow(ui.Window):
         #TODO:  block in recvfrom
         self._UDPServerSocket.shutdown(socket.SHUT_RDWR)
         #UDPServerSocket.close()
+
+    def _calculate_camera29(self, freeD):
+        #Parse the FreeDinfo
+        bit24 = (1 << 23)
+        frame_pos_header = str(freeD[0:1])
+        camera_id = int(freeD[1:2],16)
+
+        #Rotate: Yaw, Pitch, Roll
+        _sign = -1 if int(freeD[2:5], 16) & bit24 == 1 else 1
+        camera_pitch = _sign * (int(freeD[2:5], 16) & (bit24 - 1)) / 32678
+
+        _sign = -1 if int(freeD[5:8], 16) & bit24 == 1 else 1
+        camera_yaw = _sign * (int(freeD[5:8], 16) & (bit24 - 1)) / 32678
+
+        _sign = -1 if int(freeD[8:11], 16) & bit24 == 1 else 1
+        camera_roll = _sign * (int(freeD[8:11], 16) & (bit24 - 1)) / 32678
+
+        new_rotate = (camera_yaw, camera_pitch, camera_roll)
+        # Translate X,Y,Z
+        _sign = -1 if int(freeD[11:14], 16) & bit24 == 1 else 1
+        camera_pos_x = _sign * (int(freeD[11:14], 16) & (bit24 - 1)) / 64
+
+        _sign = -1 if int(freeD[14:17], 16) & bit24 == 1 else 1
+        camera_pos_y = _sign * (int(freeD[14:17], 16) & (bit24 - 1)) / 64
+
+        _sign = -1 if int(freeD[17:20], 16) & bit24 == 1 else 1
+        camera_pos_z = _sign * (int(freeD[17:20], 16) & (bit24 - 1)) / 64
+
+        # RotateYXZ
+        new_translate = (camera_pos_y, camera_pos_x, camera_pos_z)
+        #Zoon Focus
+        camera_zoom = int(freeD[20:23], 16)
+        camera_focus = int(freeD[23:26], 16)
+
+        reserve_ = int(freeD[26:28], 16)
+        freed_crc = int(freeD[28:29], 16)
+        #check crc further sum all then = crc?
+
+        camare_update_data = {'rotate': new_rotate, 'pos': new_translate, 'zoom': camera_zoom, 'focus': camera_focus}
+
+        self._bus.push(self._Udp_update_EVENT, payload=camare_update_data)
+        
 
     def _calculate_camera(self, freeD):
         #Parse the FreeDinfo
