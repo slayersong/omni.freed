@@ -89,8 +89,6 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
                 self._register_event()
 
     def on_event(self, e):
-        print("on_event called")
-        print(e.type, e.type == self._Udp_update_EVENT, e.payload)
         self._update_camera(e.payload)
         
     def _update_camera(self, camera_payload):
