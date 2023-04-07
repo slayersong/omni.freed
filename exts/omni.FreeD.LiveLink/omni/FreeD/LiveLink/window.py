@@ -143,6 +143,48 @@ class FreeDLiveLinkWindow(ui.Window):
         self._UDPServerSocket.shutdown(socket.SHUT_RDWR)
         #UDPServerSocket.close()
 
+    def _calculate_camera29(self, freeD):
+        #Parse the FreeDinfo
+        bit24 = (1 << 23)
+        frame_pos_header = str(freeD[0:1])
+        camera_id = int(freeD[1:2],16)
+
+        #Rotate: Yaw, Pitch, Roll
+        _sign = -1 if int(freeD[2:5], 16) & bit24 == 1 else 1
+        camera_pitch = _sign * (int(freeD[2:5], 16) & (bit24 - 1)) / 32678
+
+        _sign = -1 if int(freeD[5:8], 16) & bit24 == 1 else 1
+        camera_yaw = _sign * (int(freeD[5:8], 16) & (bit24 - 1)) / 32678
+
+        _sign = -1 if int(freeD[8:11], 16) & bit24 == 1 else 1
+        camera_roll = _sign * (int(freeD[8:11], 16) & (bit24 - 1)) / 32678
+
+        new_rotate = (camera_yaw, camera_pitch, camera_roll)
+        # Translate X,Y,Z
+        _sign = -1 if int(freeD[11:14], 16) & bit24 == 1 else 1
+        camera_pos_x = _sign * (int(freeD[11:14], 16) & (bit24 - 1)) / 64
+
+        _sign = -1 if int(freeD[14:17], 16) & bit24 == 1 else 1
+        camera_pos_y = _sign * (int(freeD[14:17], 16) & (bit24 - 1)) / 64
+
+        _sign = -1 if int(freeD[17:20], 16) & bit24 == 1 else 1
+        camera_pos_z = _sign * (int(freeD[17:20], 16) & (bit24 - 1)) / 64
+
+        # RotateYXZ
+        new_translate = (camera_pos_y, camera_pos_x, camera_pos_z)
+        #Zoon Focus
+        camera_zoom = int(freeD[20:23], 16)
+        camera_focus = int(freeD[23:26], 16)
+
+        reserve_ = int(freeD[26:28], 16)
+        freed_crc = int(freeD[28:29], 16)
+        #check crc further sum all then = crc?
+
+        camare_update_data = {'rotate': new_rotate, 'pos': new_translate, 'zoom': camera_zoom, 'focus': camera_focus}
+
+        self._bus.push(self._Udp_update_EVENT, payload=camare_update_data)
+        
+
     def _calculate_camera(self, freeD):
         #Parse the FreeDinfo
         bit24 = (1 << 23)
