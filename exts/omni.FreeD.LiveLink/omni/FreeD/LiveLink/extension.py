@@ -6,6 +6,7 @@ import threading
 import carb.events
 import omni.kit.app
 import asyncio
+import time
 from datetime import datetime
 from .utils import get_selection
 from .style import livelink_window_style
@@ -42,6 +43,8 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         
         if self._connect_staus == True:
             self._connect_staus = False
+            time.sleep(4)
+            self._freeD_thread.join()
         # if self._freeD_thread.is_alive():
         #     self._freeD_thread.join()
             if self._UDPServerSocket:
@@ -86,8 +89,6 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
                 self._register_event()
 
     def on_event(self, e):
-        print("on_event called")
-        print(e.type, e.type == self._Udp_update_EVENT, e.payload)
         self._update_camera(e.payload)
         
     def _update_camera(self, camera_payload):
@@ -108,9 +109,13 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
             self._startbtn.text = "Stop"
         else:
             self._connect_staus = False
+            self._tipslabel.text = "Waiting 3 seconds to close UPD socket"
+            time.sleep(4)
+            self._freeD_thread.join()
             self._UDPServerSocket.close()
             self._startbtn.text = "Start"
-            #self._freeD_thread.join()
+            self._tipslabel.text = "Socket closed"
+            #
             #self._tipslabel.text = "Send just one byte via UDP to close the Socket"
             #just 
 
@@ -181,15 +186,19 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         ## Should I run in a thread? seems that will cause a hang and cant get the right prim...
         self._UDPServerSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
         self._UDPServerSocket.bind((self._udp_ip.as_string, self._udp_port.as_int))
-        
+        self._UDPServerSocket.settimeout(3)
+
         while (self._connect_staus):
-            bytesAddressPair = self._UDPServerSocket.recvfrom(BUFFERSIZE)
+            try:
+                bytesAddressPair = self._UDPServerSocket.recvfrom(BUFFERSIZE)
+            except socket.timeout:
+                continue
 
             message = bytesAddressPair[0]
             address = bytesAddressPair[1]
             msg = "Message from Client {}".format(address)
             self._update_tips(message)
-            print ("Message type is:{}".format(type(message)))
+            #print ("Message type is:{}".format(type(message)))
             #send a byte the UPD server will close
             #Should use epoll to handle udp server, TODO later
             if len(message) == 1:
@@ -197,14 +206,74 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
                 self._tipslabel.text = "Receive 1byte disconnected"
                 self._startbtn.text = "Start"
             else:
-                if int((len(message) + 1) / 2) != FREED_DATA_LENGTH:
+                if int(len(message)) != FREED_DATA_LENGTH:
                     print("FreeD data size must euqal size 29 ")
                 else:
-                    self._calculate_camera(message)
+                    self._calculate_camera29(message)
 
         #TODO:  block in recvfrom
         #self._UDPServerSocket.shutdown(socket.SHUT_RDWR)
         #self._UDPServerSocket.close()
+
+    def _calculate_camera29(self, freeD):
+        #Parse the FreeDinfo
+        bit24 = (1 << 23)
+        frame_pos_header = str(freeD[0:1])
+        camera_id = int.from_bytes(freeD[1:2], "big")
+
+        #Rotate: Yaw, Pitch, Roll
+        _sign = -1 if (int.from_bytes(freeD[2:5], "big") & bit24) != 0 else 1
+        if _sign > 0: 
+            camera_pitch = _sign * (int.from_bytes(freeD[2:5], "big") & (bit24 - 1)) / 32768
+        else:# if < 0  (1) Data = complement(~)   (2) then Data & 7FFFFF + 1
+            camera_pitch = _sign * ((~int.from_bytes(freeD[2:5], "big") & (bit24 - 1)) + 1) / 32768
+
+        _sign = -1 if (int.from_bytes(freeD[5:8], "big") & bit24) != 0 else 1
+        if _sign > 0:
+            camera_yaw = _sign * (int.from_bytes(freeD[5:8], "big") & (bit24 - 1)) / 32768
+        else:
+            camera_yaw = _sign * (~int.from_bytes(freeD[5:8], "big") & (bit24 - 1) + 1) / 32768
+
+        _sign = -1 if ( int.from_bytes(freeD[8:11], "big") & bit24) != 0 else 1
+        if _sign > 0:
+            camera_roll = _sign * (int.from_bytes(freeD[8:11], "big") & (bit24 - 1)) / 32768
+        else: # if < 0  1 st complement(~)  then Data & 7FFFFF + 1
+            camera_roll = _sign * (~int.from_bytes(freeD[8:11], "big") & (bit24 - 1) + 1) / 32768
+
+        new_rotate = (camera_yaw, camera_pitch, camera_roll)
+        # Translate X,Y,Z
+        _sign = -1 if (int.from_bytes(freeD[11:14], "big") & bit24) != 0 else 1
+        if _sign > 0:
+            camera_pos_x = _sign * (int.from_bytes(freeD[11:14], "big") & (bit24 - 1)) / 64000
+        else:
+            camera_pos_x = _sign * (~int.from_bytes(freeD[11:14], "big") & (bit24 - 1) + 1) / 64000
+
+        _sign = -1 if (int.from_bytes(freeD[14:17], "big") & bit24) != 0 else 1
+        if _sign > 0:
+            camera_pos_y = _sign * (int.from_bytes(freeD[14:17], "big") & (bit24 - 1)) / 64000
+        else:
+            camera_pos_y = _sign * (~int.from_bytes(freeD[14:17], "big") & (bit24 - 1) + 1) / 64000
+
+        _sign = -1 if (int.from_bytes(freeD[17:20], "big") & bit24) != 0 else 1
+        if _sign > 0:
+            camera_pos_z = _sign * (int.from_bytes(freeD[17:20], "big") & (bit24 - 1) + 1) / 64000
+        else:
+            camera_pos_z = _sign * (~int.from_bytes(freeD[17:20], "big") & (bit24 - 1) + 1) / 64000
+
+        # RotateYXZ
+        new_translate = (camera_pos_y, camera_pos_x, camera_pos_z)
+        #Zoon Focus
+        #TODO: Depends on Camera HW
+        camera_zoom = int.from_bytes(freeD[20:23], "big")
+        camera_focus = int.from_bytes(freeD[23:26], "big")
+
+        reserve_ = int.from_bytes(freeD[26:28], "big")
+        freed_crc = int.from_bytes(freeD[28:29], "big")
+        #check crc further sum all then = crc?
+
+        camare_update_data = {'rotate': new_rotate, 'pos': new_translate, 'zoom': camera_zoom, 'focus': camera_focus}
+
+        self._bus.push(self._Udp_update_EVENT, payload=camare_update_data)
 
     def _calculate_camera(self, freeD):
         #Parse the FreeDinfo
@@ -235,21 +304,21 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         # Translate X,Y,Z
         _sign = -1 if (int(freeD[22:28], 16) & bit24) != 0 else 1
         if _sign > 0:
-            camera_pos_x = _sign * (int(freeD[22:28], 16) & (bit24 - 1)) / 64000
+            camera_pos_x = _sign * (int(freeD[22:28], 16) & (bit24 - 1)) / (64000)
         else:
-            camera_pos_x = _sign * (~int(freeD[22:28], 16) & (bit24 - 1) + 1) / 64000
+            camera_pos_x = _sign * (~int(freeD[22:28], 16) & (bit24 - 1) + 1) / (64000)
 
         _sign = -1 if (int(freeD[28:34], 16) & bit24) != 0 else 1
         if _sign > 0:
-            camera_pos_y = _sign * (int(freeD[28:34], 16) & (bit24 - 1)) / 64000
+            camera_pos_y = _sign * (int(freeD[28:34], 16) & (bit24 - 1)) / (64000)    
         else:
-            camera_pos_y = _sign * (~int(freeD[28:34], 16) & (bit24 - 1) + 1) / 64000
+            camera_pos_y = _sign * (~int(freeD[28:34], 16) & (bit24 - 1) + 1) / (64000)
 
         _sign = -1 if (int(freeD[34:40], 16) & bit24) != 0 else 1
         if _sign > 0:
-            camera_pos_z = _sign * (int(freeD[34:40], 16) & (bit24 - 1)) / 64000
+            camera_pos_z = _sign * (int(freeD[34:40], 16) & (bit24 - 1)) / (64000)
         else:
-            camera_pos_z = _sign * (~int(freeD[34:40], 16) & (bit24 - 1) + 1) / 64000
+            camera_pos_z = _sign * (~int(freeD[34:40], 16) & (bit24 - 1)) / (64000)   
 
         # RotateYXZ
         new_translate = (camera_pos_y, camera_pos_x, camera_pos_z)
