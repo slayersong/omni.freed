@@ -166,6 +166,9 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
                     ui.Label("UDP Port", name="attribute_name", width=self.label_width)
                     ui.IntDrag(self._udp_port, min=0, max=65535)
                 with ui.HStack():
+                    ui.Label("Encode Focal Length and Distance", name="attribute_name", width=self.label_width)
+                    ui.CheckBox(name="attribute_bool")
+                with ui.HStack():
                     self._startbtn = ui.Button("Start", clicked_fn=self.on_start_listener, width=self.button_width)
                     self._tipslabel = ui.Label("disconected", name="livelink_tips", width=self.label_width)
                     #ui.Label(model=self._connect_tips, name="livelink_tips",width=self.label_width)
@@ -208,6 +211,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
             else:
                 if int(len(message)) != FREED_DATA_LENGTH:
                     print("FreeD data size must euqal size 29 ")
+                    self._calculate_camera(message)
                 else:
                     self._calculate_camera29(message)
 
@@ -232,13 +236,13 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         if _sign > 0:
             camera_yaw = _sign * (int.from_bytes(freeD[5:8], "big") & (bit24 - 1)) / 32768
         else:
-            camera_yaw = _sign * (~int.from_bytes(freeD[5:8], "big") & (bit24 - 1) + 1) / 32768
+            camera_yaw = _sign * ((~int.from_bytes(freeD[5:8], "big") & (bit24 - 1)) + 1) / 32768
 
         _sign = -1 if ( int.from_bytes(freeD[8:11], "big") & bit24) != 0 else 1
         if _sign > 0:
             camera_roll = _sign * (int.from_bytes(freeD[8:11], "big") & (bit24 - 1)) / 32768
         else: # if < 0  1 st complement(~)  then Data & 7FFFFF + 1
-            camera_roll = _sign * (~int.from_bytes(freeD[8:11], "big") & (bit24 - 1) + 1) / 32768
+            camera_roll = _sign * ((~int.from_bytes(freeD[8:11], "big") & (bit24 - 1)) + 1) / 32768
 
         new_rotate = (camera_yaw, camera_pitch, camera_roll)
         # Translate X,Y,Z
@@ -246,19 +250,19 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         if _sign > 0:
             camera_pos_x = _sign * (int.from_bytes(freeD[11:14], "big") & (bit24 - 1)) / 64000
         else:
-            camera_pos_x = _sign * (~int.from_bytes(freeD[11:14], "big") & (bit24 - 1) + 1) / 64000
+            camera_pos_x = _sign * ((~int.from_bytes(freeD[11:14], "big") & (bit24 - 1)) + 1) / 64000
 
         _sign = -1 if (int.from_bytes(freeD[14:17], "big") & bit24) != 0 else 1
         if _sign > 0:
             camera_pos_y = _sign * (int.from_bytes(freeD[14:17], "big") & (bit24 - 1)) / 64000
         else:
-            camera_pos_y = _sign * (~int.from_bytes(freeD[14:17], "big") & (bit24 - 1) + 1) / 64000
+            camera_pos_y = _sign * ((~int.from_bytes(freeD[14:17], "big") & (bit24 - 1)) + 1) / 64000
 
         _sign = -1 if (int.from_bytes(freeD[17:20], "big") & bit24) != 0 else 1
         if _sign > 0:
             camera_pos_z = _sign * (int.from_bytes(freeD[17:20], "big") & (bit24 - 1) + 1) / 64000
         else:
-            camera_pos_z = _sign * (~int.from_bytes(freeD[17:20], "big") & (bit24 - 1) + 1) / 64000
+            camera_pos_z = _sign * ((~int.from_bytes(freeD[17:20], "big") & (bit24 - 1)) + 1) / 64000
 
         # RotateYXZ
         new_translate = (camera_pos_y, camera_pos_x, camera_pos_z)
@@ -298,7 +302,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         if _sign > 0:
             camera_roll = _sign * (int(freeD[16:22], 16) & (bit24 - 1)) / 32768
         else: # if < 0  1 st complement(~)  then Data & 7FFFFF + 1
-            camera_roll = _sign * (~int(freeD[16:22], 16) & (bit24 - 1) + 1) / 32768
+            camera_roll = _sign * ((~int(freeD[16:22], 16) & (bit24 - 1)) + 1) / 32768
 
         new_rotate = (camera_yaw, camera_pitch, camera_roll)
         # Translate X,Y,Z
