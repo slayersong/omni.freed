@@ -5,8 +5,9 @@ import socket
 import threading
 import carb.events
 import omni.kit.app
-import asyncio
+import os
 import time
+import json
 from datetime import datetime
 from .utils import get_selection
 from .style import livelink_window_style
@@ -38,23 +39,26 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
 
     def on_shutdown(self):
         if self._window:
+            self.save_config("freed.json")
             self._window.destroy()
             self._window = None
-        
+
         if self._connect_staus == True:
             self._connect_staus = False
-            time.sleep(4)
+            #time.sleep(3)
             self._freeD_thread.join()
-        # if self._freeD_thread.is_alive():
-        #     self._freeD_thread.join()
+
             if self._UDPServerSocket:
                 self._UDPServerSocket.close()
-        print("[omni.FreeD.LiveLink] omni FreeD LiveLink shutdown")
         
+        print("[omni.FreeD.LiveLink] omni FreeD LiveLink shutdown")
+
     def _init_var(self):
         self._source_prim_model_a = ui.SimpleStringModel()
         self._udp_ip = ui.SimpleStringModel()
         self._udp_port = ui.SimpleIntModel()
+        self._bEncodeCameraLens = ui.SimpleBoolModel(True)
+        self._config_dict = {"udp_ip": self._udp_ip.as_string, "udp_port": self._udp_port.as_int, "bEncoude": self._bEncodeCameraLens.as_bool}
 
         self.__label_width = LABEL_WIDTH
         self.__button_width = BUTTON_WIDTH
@@ -72,10 +76,12 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         self.sub2 = self._bus.create_subscription_to_pop_by_type(self._Udp_update_EVENT, self.on_event)
 
     def _init_udp_server(self):
-        self._udp_ip.as_string = "127.0.0.1"
-        self._udp_port.as_int = 40001
+        self._udp_ip.as_string = self._config_dict['udp_ip']
+        self._udp_port.as_int = self._config_dict['udp_port']
+        self._bEncodeCameraLens.as_bool = self._config_dict['bEncoude']
         self._bufferSize = 1024
         self._connect_staus = False
+
 
     def on_startup(self, ext_id):
         print("[omni.FreeD.LiveLink] omni FreeD LiveLink startup")  
@@ -84,21 +90,46 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         with self._window.frame:
             with ui.VStack():
                 self._init_var()
+                self.load_config("freed.json")
                 self._build_widget()
                 self._init_udp_server()
                 self._register_event()
+                
 
     def on_event(self, e):
         self._update_camera(e.payload)
-        
+    
+    def load_config(self, filename):
+        current_path = os.path.abspath(__file__)
+        fran_file_path = os.path.join(os.path.abspath(os.path.dirname(current_path)+os.path.sep), filename)
+
+        with open(fran_file_path) as fl:
+            self._config_dict = json.loads(fl.read())
+            fl.close()
+            #return True
+
+    def save_config(self, filename):
+        current_path = os.path.abspath(__file__)
+        fran_file_path = os.path.join(os.path.abspath(os.path.dirname(current_path)+os.path.sep), filename)
+
+        self._config_dict['udp_ip'] = self._udp_ip.as_string
+        self._config_dict['udp_port'] = self._udp_port.as_int
+        self._config_dict['bEncoude'] = self._bEncodeCameraLens.as_bool
+        outputjson = json.dumps(self._config_dict)
+
+        outputfile = open(fran_file_path, 'w')
+        outputfile.write(outputjson)
+        outputfile.close()
+
     def _update_camera(self, camera_payload):
         if len(self._source_prim_model_a.as_string) != 0:
             #{'rotate': new_rotate, 'pos': new_translate, 'zoom': camera_zoom, 'focus': camera_focus}
-            #cameraPrim = omni.usd.get_context().get_stage().GetPrimAtPath(self._source_prim_model_a.as_string)
             self._cameraPrim.GetAttribute('xformOp:translate').Set(camera_payload['pos'])
-            self._cameraPrim.GetAttribute('focalLength').Set(camera_payload['zoom'])
             self._cameraPrim.GetAttribute('xformOp:rotateYXZ').Set(camera_payload['rotate'])
-            self._cameraPrim.GetAttribute('focusDistance').Set(camera_payload['focus'])
+
+            if self._bEncodeCameraLens.as_bool:
+                self._cameraPrim.GetAttribute('focalLength').Set(camera_payload['zoom'])
+                self._cameraPrim.GetAttribute('focusDistance').Set(camera_payload['focus'])
 
     def on_start_listener(self):
         if not self._connect_staus:
@@ -110,7 +141,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         else:
             self._connect_staus = False
             self._tipslabel.text = "Waiting 3 seconds to close UPD socket"
-            time.sleep(4)
+            #time.sleep(4)
             self._freeD_thread.join()
             self._UDPServerSocket.close()
             self._startbtn.text = "Start"
@@ -166,8 +197,9 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
                     ui.Label("UDP Port", name="attribute_name", width=self.label_width)
                     ui.IntDrag(self._udp_port, min=0, max=65535)
                 with ui.HStack():
-                    ui.Label("Encode Focal Length and Distance", name="attribute_name", width=self.label_width)
-                    ui.CheckBox(name="attribute_bool")
+                    ui.CheckBox(model=self._bEncodeCameraLens, width=10)
+                    ui.Label("Encode Camera Lens", name="attribute_name", width=self.label_width)
+
                 with ui.HStack():
                     self._startbtn = ui.Button("Start", clicked_fn=self.on_start_listener, width=self.button_width)
                     self._tipslabel = ui.Label("disconected", name="livelink_tips", width=self.label_width)
@@ -238,7 +270,10 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         else:
             camera_yaw = _sign * ((~int.from_bytes(freeD[5:8], "big") & (bit24 - 1)) + 1) / 32768
 
-        _sign = -1 if ( int.from_bytes(freeD[8:11], "big") & bit24) != 0 else 1
+        # Yaw should be inversed by OV left hand coordinate
+        camera_yaw *= -1
+
+        _sign = -1 if (int.from_bytes(freeD[8:11], "big") & bit24) != 0 else 1
         if _sign > 0:
             camera_roll = _sign * (int.from_bytes(freeD[8:11], "big") & (bit24 - 1)) / 32768
         else: # if < 0  1 st complement(~)  then Data & 7FFFFF + 1
@@ -267,7 +302,6 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         # RotateYXZ
         new_translate = (camera_pos_y, camera_pos_x, camera_pos_z)
         #Zoon Focus
-        #TODO: Depends on Camera HW
         camera_zoom = int.from_bytes(freeD[20:23], "big")
         camera_focus = int.from_bytes(freeD[23:26], "big")
 
@@ -275,6 +309,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         freed_crc = int.from_bytes(freeD[28:29], "big")
         #check crc further sum all then = crc?
 
+        # Still pack zoom and focus while not update
         camare_update_data = {'rotate': new_rotate, 'pos': new_translate, 'zoom': camera_zoom, 'focus': camera_focus}
 
         self._bus.push(self._Udp_update_EVENT, payload=camare_update_data)
