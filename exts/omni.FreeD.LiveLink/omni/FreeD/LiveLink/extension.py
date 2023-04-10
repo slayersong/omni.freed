@@ -274,7 +274,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         else:
             camera_pitch = _sign * ((~int.from_bytes(freeD[5:8], "big") & (bit24 - 1)) + 1) / 32768
         #A positive value indicates an upwards tilt so no need to inverse
-        camera_pitch *= -1
+        #camera_pitch *= -1
 
         _sign = -1 if (int.from_bytes(freeD[8:11], "big") & bit24) != 0 else 1
         if _sign > 0:
@@ -338,7 +338,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
             camera_pitch = _sign * (int(freeD[10:16], 16) & (bit24 - 1)) / 32768
         else:
             camera_pitch = _sign * ((~int(freeD[10:16], 16) & (bit24 - 1)) + 1) / 32768
-        camera_pitch *= -1
+        #camera_pitch *= -1
         
         _sign = -1 if (int(freeD[16:22], 16) & bit24) != 0 else 1
         if _sign > 0:
