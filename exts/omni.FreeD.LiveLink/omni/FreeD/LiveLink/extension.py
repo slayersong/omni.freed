@@ -6,6 +6,7 @@ import threading
 import carb.events
 import omni.kit.app
 import os
+import asyncio
 import time
 import json
 from datetime import datetime
@@ -243,7 +244,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
             else:
                 if int(len(message)) != FREED_DATA_LENGTH:
                     print("FreeD data size must euqal size 29 ")
-                    self._calculate_camera(message)
+                    #self._calculate_camera(message)
                 else:
                     self._calculate_camera29(message)
 
@@ -260,26 +261,30 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         #Rotate: Yaw, Pitch, Roll
         _sign = -1 if (int.from_bytes(freeD[2:5], "big") & bit24) != 0 else 1
         if _sign > 0: 
-            camera_pitch = _sign * (int.from_bytes(freeD[2:5], "big") & (bit24 - 1)) / 32768
+            camera_yaw = _sign * (int.from_bytes(freeD[2:5], "big") & (bit24 - 1)) / 32768
         else:# if < 0  (1) Data = complement(~)   (2) then Data & 7FFFFF + 1
-            camera_pitch = _sign * ((~int.from_bytes(freeD[2:5], "big") & (bit24 - 1)) + 1) / 32768
-
+            camera_yaw = _sign * ((~int.from_bytes(freeD[2:5], "big") & (bit24 - 1)) + 1) / 32768
+        
+        # Camera pan is clockwise, while in OV raw is anti-clockwise
+        camera_yaw *= -1
+        
         _sign = -1 if (int.from_bytes(freeD[5:8], "big") & bit24) != 0 else 1
         if _sign > 0:
-            camera_yaw = _sign * (int.from_bytes(freeD[5:8], "big") & (bit24 - 1)) / 32768
+            camera_pitch = _sign * (int.from_bytes(freeD[5:8], "big") & (bit24 - 1)) / 32768
         else:
-            camera_yaw = _sign * ((~int.from_bytes(freeD[5:8], "big") & (bit24 - 1)) + 1) / 32768
-
-        # Yaw should be inversed by OV left hand coordinate
-        camera_yaw *= -1
+            camera_pitch = _sign * ((~int.from_bytes(freeD[5:8], "big") & (bit24 - 1)) + 1) / 32768
+        #A positive value indicates an upwards tilt so no need to inverse
+        camera_pitch *= -1
 
         _sign = -1 if (int.from_bytes(freeD[8:11], "big") & bit24) != 0 else 1
         if _sign > 0:
             camera_roll = _sign * (int.from_bytes(freeD[8:11], "big") & (bit24 - 1)) / 32768
         else: # if < 0  1 st complement(~)  then Data & 7FFFFF + 1
             camera_roll = _sign * ((~int.from_bytes(freeD[8:11], "big") & (bit24 - 1)) + 1) / 32768
-
-        new_rotate = (camera_yaw, camera_pitch, camera_roll)
+        camera_roll *= -1
+        
+        # Y X Z
+        new_rotate = (camera_pitch, camera_yaw, camera_roll)
         # Translate X,Y,Z
         _sign = -1 if (int.from_bytes(freeD[11:14], "big") & bit24) != 0 else 1
         if _sign > 0:
@@ -322,24 +327,28 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
 
         #Rotate: Yaw, Pitch, Roll
         _sign = -1 if (int(freeD[4:10], 16) & bit24) != 0 else 1
-        if _sign > 0: 
-            camera_pitch = _sign * (int(freeD[4:10], 16) & (bit24 - 1)) / 32768
+        if _sign > 0:
+            camera_yaw = _sign * (int(freeD[4:10], 16) & (bit24 - 1)) / 32768
         else:# if < 0  (1) Data = complement(~)   (2) then Data & 7FFFFF + 1
-            camera_pitch = _sign * ((~int(freeD[4:10], 16) & (bit24 - 1)) + 1) / 32768
-
+            camera_yaw = _sign * ((~int(freeD[4:10], 16) & (bit24 - 1)) + 1) / 32768
+        camera_yaw *= -1
+        
         _sign = -1 if (int(freeD[10:16], 16) & bit24) != 0 else 1
         if _sign > 0:
-            camera_yaw = _sign * (int(freeD[10:16], 16) & (bit24 - 1)) / 32768
+            camera_pitch = _sign * (int(freeD[10:16], 16) & (bit24 - 1)) / 32768
         else:
-            camera_yaw = _sign * ((~int(freeD[10:16], 16) & (bit24 - 1)) + 1) / 32768
-
+            camera_pitch = _sign * ((~int(freeD[10:16], 16) & (bit24 - 1)) + 1) / 32768
+        camera_pitch *= -1
+        
         _sign = -1 if (int(freeD[16:22], 16) & bit24) != 0 else 1
         if _sign > 0:
             camera_roll = _sign * (int(freeD[16:22], 16) & (bit24 - 1)) / 32768
         else: # if < 0  1 st complement(~)  then Data & 7FFFFF + 1
             camera_roll = _sign * ((~int(freeD[16:22], 16) & (bit24 - 1)) + 1) / 32768
-
-        new_rotate = (camera_yaw, camera_pitch, camera_roll)
+        
+        camera_roll *= -1
+        
+        new_rotate = (camera_pitch, camera_yaw, camera_roll)
         # Translate X,Y,Z
         _sign = -1 if (int(freeD[22:28], 16) & bit24) != 0 else 1
         if _sign > 0:
