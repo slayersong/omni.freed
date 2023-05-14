@@ -13,12 +13,13 @@ from datetime import datetime
 from .utils import get_selection
 from .style import livelink_window_style
 from .window import FreeDLiveLinkWindow
-
+from functools import partial
 # Functions and vars are available to other extension as usual in python: `example.python_ext.some_public_function(x)`
 def some_public_function(x: int):
     print("[omni.FreeD.LiveLink] some_public_function was called with x: ", x)
     return x ** x
 
+# Done merge
 LABEL_WIDTH = 120
 BUTTON_WIDTH = 120
 BUTTON_HEIGHT = 80
@@ -54,6 +55,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         
         print("[omni.FreeD.LiveLink] omni FreeD LiveLink shutdown")
 
+    #done merge
     def _init_var(self):
         self._source_prim_model_a = ui.SimpleStringModel()
         self._udp_ip = ui.SimpleStringModel()
@@ -66,6 +68,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         self.__button_height = BUTTON_HEIGHT
         self._stage = omni.usd.get_context().get_stage()
 
+    #done merge
     def _register_event(self):
         # Event is unique integer id. Create it from string by hashing, using helper function.
         # [ext name].[event name] is a recommended naming convention:
@@ -76,13 +79,13 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         # elf.sub1 = self._bus.create_subscription_to_push_by_type(self._Udp_update_EVENT, self.on_event)
         self.sub2 = self._bus.create_subscription_to_pop_by_type(self._Udp_update_EVENT, self.on_event)
 
+    #done merge
     def _init_udp_server(self):
         self._udp_ip.as_string = self._config_dict['udp_ip']
         self._udp_port.as_int = self._config_dict['udp_port']
         self._bEncodeCameraLens.as_bool = self._config_dict['bEncoude']
         self._bufferSize = 1024
         self._connect_staus = False
-
 
     def on_startup(self, ext_id):
         print("[omni.FreeD.LiveLink] omni FreeD LiveLink startup")  
@@ -95,11 +98,11 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
                 self._build_widget()
                 self._init_udp_server()
                 self._register_event()
-                
 
+    #done merge
     def on_event(self, e):
         self._update_camera(e.payload)
-    
+    #done merge
     def load_config(self, filename):
         current_path = os.path.abspath(__file__)
         fran_file_path = os.path.join(os.path.abspath(os.path.dirname(current_path)+os.path.sep), filename)
@@ -108,7 +111,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
             self._config_dict = json.loads(fl.read())
             fl.close()
             #return True
-
+    #done merge
     def save_config(self, filename):
         current_path = os.path.abspath(__file__)
         fran_file_path = os.path.join(os.path.abspath(os.path.dirname(current_path)+os.path.sep), filename)
@@ -121,7 +124,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         outputfile = open(fran_file_path, 'w')
         outputfile.write(outputjson)
         outputfile.close()
-
+    #done merge
     def _update_camera(self, camera_payload):
         if len(self._source_prim_model_a.as_string) != 0:
             #{'rotate': new_rotate, 'pos': new_translate, 'zoom': camera_zoom, 'focus': camera_focus}
@@ -131,7 +134,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
             if self._bEncodeCameraLens.as_bool:
                 self._cameraPrim.GetAttribute('focalLength').Set(camera_payload['zoom'])
                 self._cameraPrim.GetAttribute('focusDistance').Set(camera_payload['focus'])
-
+    #done merge
     def on_start_listener(self):
         if not self._connect_staus:
             self._freeD_thread = threading.Thread(target=self._startUPDServer)
@@ -159,11 +162,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         #self._updThread()
         print("on_start_listener")
 
-    def on_stop_listener(self):
-        print("on_stop_listener")
 
-    def _build_fn(self):
-        print("build_fn")
 
     def _on_get_selection(self, model):
         """Called when the user presses the "Get From Selection" button"""
@@ -171,6 +170,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         self._cameraPrim = omni.usd.get_context().get_stage().GetPrimAtPath(self._source_prim_model_a.as_string)
         print('_cameraPrim name is:{}'.format(self._cameraPrim))
 
+    #done merge
     def _build_camera_source(self):
         with ui.CollapsableFrame("Source", name="group"):
             with ui.VStack(height=0, spacing=SPACING):
@@ -186,7 +186,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
                         clicked_fn=lambda:self._on_get_selection(self._source_prim_model_a),
                         tooltip="Get Camera From Selection",
                     )
-    
+    #done merge    
     def _build_livelink(self):
         with ui.CollapsableFrame("LiveLink", name="group"):
             with ui.VStack(height=0, spacing=SPACING):
@@ -206,7 +206,8 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
                     self._tipslabel = ui.Label("disconected", name="livelink_tips", width=self.label_width)
                     #ui.Label(model=self._connect_tips, name="livelink_tips",width=self.label_width)
                     #ui.Button("Stop", clicked_fn=self.on_stop_listener, width=self.button_width, enabled=False)
-
+    
+    #done merge
     def _build_widget(self):
         """
         The method that is called to build all the UI once the window is
@@ -217,7 +218,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
             with ui.VStack(height=0):
                 self._build_camera_source()
                 self._build_livelink()
-        
+    #done merge    
     def _startUPDServer(self):
         ## Should I run in a thread? seems that will cause a hang and cant get the right prim...
         self._UDPServerSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
@@ -251,7 +252,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         #TODO:  block in recvfrom
         #self._UDPServerSocket.shutdown(socket.SHUT_RDWR)
         #self._UDPServerSocket.close()
-
+    #done merge
     def _calculate_camera29(self, freeD):
         #Parse the FreeDinfo
         bit24 = (1 << 23)
@@ -318,7 +319,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         camare_update_data = {'rotate': new_rotate, 'pos': new_translate, 'zoom': camera_zoom, 'focus': camera_focus}
 
         self._bus.push(self._Udp_update_EVENT, payload=camare_update_data)
-
+    #done merge
     def _calculate_camera(self, freeD):
         #Parse the FreeDinfo
         bit24 = (1 << 23)
@@ -382,7 +383,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         camare_update_data = {'rotate': new_rotate, 'pos': new_translate, 'zoom': camera_zoom, 'focus': camera_focus}
 
         self._bus.push(self._Udp_update_EVENT, payload=camare_update_data)
-
+    #done merge
     def _update_tips(self, textinfo):
         #self._tipslabel.text = "FreeD:" + str(datetime.hour) + ":" + str(datetime.minute) + ":" + str(datetime.second) + " " + textinfo
         self._tipslabel.text = "FreeD:" + str(textinfo)
@@ -416,3 +417,10 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
             self._window.set_visibility_changed_fn(self._visiblity_changed_fn)
         elif self._window:
             self._window.visible = False
+
+
+    def on_stop_listener(self):
+        pass
+
+    def _build_fn(self):
+        pass
