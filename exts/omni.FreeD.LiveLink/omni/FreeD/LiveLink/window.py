@@ -7,13 +7,21 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 #
 __all__ = ["FreeDLiveLinkWindow"]
-import omni.ui as ui
-from .style import livelink_window_style
-from .utils import get_selection
+import omni.ext
 import omni.usd
+import omni.ui as ui
 import socket
 import threading
 import carb.events
+import omni.kit.app
+import os
+import asyncio
+import time
+import json
+from datetime import datetime
+from .utils import get_selection
+from .style import livelink_window_style
+from functools import partial
 
 LABEL_WIDTH = 120
 BUTTON_WIDTH = 120
@@ -30,23 +38,20 @@ class FreeDLiveLinkWindow(ui.Window):
     """The class that represents the window"""
     def __init__(self, title: str, delegate=None, **kwargs):
         super().__init__(title, **kwargs)
-        
-        self._window = ui.Window("FreeD Live Link", width=300, height=200)
-        
-        with self._window.frame:
+
+        #self._window = ui.Window("FreeD Live Link", width=300, height=200)
+        self.frame.set_build_fn(self._build_widget)
+        with self.frame:
             with ui.VStack():
                 self._init_var()
                 self.load_config("freed.json")
                 self._build_widget()
                 self._init_udp_server()
                 self._register_event()
-
+                
     def destroy(self):
         # It will destroy all the children
-        if self._window:
-            self.save_config("freed.json")
-            self._window.destroy()
-            self._window = None
+        self.save_config("freed.json")
 
         if self._connect_staus == True:
             self._connect_staus = False
@@ -197,7 +202,7 @@ class FreeDLiveLinkWindow(ui.Window):
         The method that is called to build all the UI once the window is
         visible.
         """
-        self._window.frame.style = livelink_window_style
+        self.frame.style = livelink_window_style
         with ui.ScrollingFrame():
             with ui.VStack(height=0):
                 self._build_camera_source()
@@ -386,17 +391,6 @@ class FreeDLiveLinkWindow(ui.Window):
     def button_height(self):
         """The width of the attribute label"""
         return self.__button_height
-    
-    def destroy(self):
-        self._connect_staus = False
-        if self._freeD_thread.is_alive():
-            self._freeD_thread.join()
-
-        self._UDPServerSocket.close()
-        print("[omni.FreeD.LiveLink] omni FreeD LiveLink shutdown")
-        # It will destroy all the children
-        super().destroy()
-
 
     def on_stop_listener(self):
         print("on_stop_listener")

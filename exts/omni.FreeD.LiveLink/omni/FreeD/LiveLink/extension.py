@@ -38,21 +38,35 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
     
     def __init__(self):
         super().__init__()
+        
+    def on_startup(self, ext_id):
+        print("[omni.FreeD.LiveLink] omni FreeD LiveLink startup")  
+        #self._window = ui.Window("FreeD Live Link", width=300, height=200)
+        self._window = FreeDLiveLinkWindow("FreeD Live Link", width=300, height=200)
+        
+        # with self._window.frame:
+        #     with ui.VStack():
+        #         self._init_var()
+        #         self.load_config("freed.json")
+        #         self._build_widget()
+        #         self._init_udp_server()
+        #         self._register_event()
 
     def on_shutdown(self):
-        if self._window:
-            self.save_config("freed.json")
-            self._window.destroy()
-            self._window = None
+        # if self._window:
+        #     self.save_config("freed.json")
+        #     self._window.destroy()
+        #     self._window = None
 
-        if self._connect_staus == True:
-            self._connect_staus = False
-            #time.sleep(3)
-            self._freeD_thread.join()
+        # if self._connect_staus == True:
+        #     self._connect_staus = False
+        #     #time.sleep(3)
+        #     self._freeD_thread.join()
 
-            if self._UDPServerSocket:
-                self._UDPServerSocket.close()
-        
+        #     if self._UDPServerSocket:
+        #         self._UDPServerSocket.close()
+        self._window.destroy()
+        self._window = None
         print("[omni.FreeD.LiveLink] omni FreeD LiveLink shutdown")
 
     #done merge
@@ -87,17 +101,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
         self._bufferSize = 1024
         self._connect_staus = False
 
-    def on_startup(self, ext_id):
-        print("[omni.FreeD.LiveLink] omni FreeD LiveLink startup")  
-        self._window = ui.Window("FreeD Live Link", width=300, height=200)
 
-        with self._window.frame:
-            with ui.VStack():
-                self._init_var()
-                self.load_config("freed.json")
-                self._build_widget()
-                self._init_udp_server()
-                self._register_event()
 
     #done merge
     def on_event(self, e):
@@ -218,6 +222,7 @@ class OmniFreedLivelinkExtension(omni.ext.IExt):
             with ui.VStack(height=0):
                 self._build_camera_source()
                 self._build_livelink()
+
     #done merge    
     def _startUPDServer(self):
         ## Should I run in a thread? seems that will cause a hang and cant get the right prim...
