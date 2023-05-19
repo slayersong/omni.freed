@@ -102,8 +102,6 @@ class FreeDLiveLinkWindow(ui.Window):
 
         with open(fran_file_path) as fl:
             self._config_dict = json.loads(fl.read())
-            fl.close()
-            #return True
 
     def save_config(self, filename):
         current_path = os.path.abspath(__file__)
@@ -114,9 +112,10 @@ class FreeDLiveLinkWindow(ui.Window):
         self._config_dict['bEncoude'] = self._bEncodeCameraLens.as_bool
         outputjson = json.dumps(self._config_dict)
 
-        outputfile = open(fran_file_path, 'w')
-        outputfile.write(outputjson)
-        outputfile.close()
+        with open(fran_file_path, 'w') as f1:
+            #outputfile = open(fran_file_path, 'w')
+            f1.write(outputjson)
+            #outputfile.close()
 
     def _update_camera(self, camera_payload):
         if len(self._source_prim_model_a.as_string) != 0:
@@ -224,9 +223,7 @@ class FreeDLiveLinkWindow(ui.Window):
             address = bytesAddressPair[1]
             msg = "Message from Client {}".format(address)
             self._update_tips(message)
-            #print ("Message type is:{}".format(type(message)))
-            #send a byte the UPD server will close
-            #Should use epoll to handle udp server, TODO later
+
             if len(message) == 1:
                 self._connect_staus = False
                 self._tipslabel.text = "Receive 1byte disconnected"
@@ -238,9 +235,6 @@ class FreeDLiveLinkWindow(ui.Window):
                 else:
                     self._calculate_camera29(message)
 
-        #TODO:  block in recvfrom
-        #self._UDPServerSocket.shutdown(socket.SHUT_RDWR)
-        #self._UDPServerSocket.close()
 
     def _calculate_camera29(self, freeD):
         #Parse the FreeDinfo
@@ -255,7 +249,7 @@ class FreeDLiveLinkWindow(ui.Window):
         else:# if < 0  (1) Data = complement(~)   (2) then Data & 7FFFFF + 1
             camera_yaw = _sign * ((~int.from_bytes(freeD[2:5], "big") & (bit24 - 1)) + 1) / 32768
         
-        # Camera pan is clockwise, while in OV raw is anti-clockwise
+        # Camera pan is clockwise, in OV raw is anti-clockwise
         camera_yaw *= -1
         
         _sign = -1 if (int.from_bytes(freeD[5:8], "big") & bit24) != 0 else 1
@@ -309,69 +303,6 @@ class FreeDLiveLinkWindow(ui.Window):
 
         self._bus.push(self._Udp_update_EVENT, payload=camare_update_data)
 
-    def _calculate_camera(self, freeD):
-        #Parse the FreeDinfo
-        bit24 = (1 << 23)
-        frame_pos_header = str(freeD[0:2])
-        camera_id = int(freeD[2:4],16)
-
-        #Rotate: Yaw, Pitch, Roll
-        _sign = -1 if (int(freeD[4:10], 16) & bit24) != 0 else 1
-        if _sign > 0:
-            camera_yaw = _sign * (int(freeD[4:10], 16) & (bit24 - 1)) / 32768
-        else:# if < 0  (1) Data = complement(~)   (2) then Data & 7FFFFF + 1
-            camera_yaw = _sign * ((~int(freeD[4:10], 16) & (bit24 - 1)) + 1) / 32768
-        camera_yaw *= -1
-        
-        _sign = -1 if (int(freeD[10:16], 16) & bit24) != 0 else 1
-        if _sign > 0:
-            camera_pitch = _sign * (int(freeD[10:16], 16) & (bit24 - 1)) / 32768
-        else:
-            camera_pitch = _sign * ((~int(freeD[10:16], 16) & (bit24 - 1)) + 1) / 32768
-        #camera_pitch *= -1
-        
-        _sign = -1 if (int(freeD[16:22], 16) & bit24) != 0 else 1
-        if _sign > 0:
-            camera_roll = _sign * (int(freeD[16:22], 16) & (bit24 - 1)) / 32768
-        else: # if < 0  1 st complement(~)  then Data & 7FFFFF + 1
-            camera_roll = _sign * ((~int(freeD[16:22], 16) & (bit24 - 1)) + 1) / 32768
-        
-        camera_roll *= -1
-        
-        new_rotate = (camera_pitch, camera_yaw, camera_roll)
-        # Translate X,Y,Z
-        _sign = -1 if (int(freeD[22:28], 16) & bit24) != 0 else 1
-        if _sign > 0:
-            camera_pos_x = _sign * (int(freeD[22:28], 16) & (bit24 - 1)) / (64000)
-        else:
-            camera_pos_x = _sign * (~int(freeD[22:28], 16) & (bit24 - 1) + 1) / (64000)
-
-        _sign = -1 if (int(freeD[28:34], 16) & bit24) != 0 else 1
-        if _sign > 0:
-            camera_pos_y = _sign * (int(freeD[28:34], 16) & (bit24 - 1)) / (64000)    
-        else:
-            camera_pos_y = _sign * (~int(freeD[28:34], 16) & (bit24 - 1) + 1) / (64000)
-
-        _sign = -1 if (int(freeD[34:40], 16) & bit24) != 0 else 1
-        if _sign > 0:
-            camera_pos_z = _sign * (int(freeD[34:40], 16) & (bit24 - 1)) / (64000)
-        else:
-            camera_pos_z = _sign * (~int(freeD[34:40], 16) & (bit24 - 1)) / (64000)   
-
-        # RotateYXZ
-        new_translate = (camera_pos_y, camera_pos_x, camera_pos_z)
-        #Zoon Focus
-        #TODO: Depends on Camera HW
-        camera_zoom = int(freeD[40:46], 16)
-        camera_focus = int(freeD[46:52], 16)
-
-        reserve_ = int(freeD[52:56], 16)
-        freed_crc = int(freeD[56:58], 16)
-        #check crc further sum all then = crc?
-
-        camare_update_data = {'rotate': new_rotate, 'pos': new_translate, 'zoom': camera_zoom, 'focus': camera_focus}
-
-        self._bus.push(self._Udp_update_EVENT, payload=camare_update_data)
 
     def _update_tips(self, textinfo):
         #self._tipslabel.text = "FreeD:" + str(datetime.hour) + ":" + str(datetime.minute) + ":" + str(datetime.second) + " " + textinfo
@@ -396,4 +327,68 @@ class FreeDLiveLinkWindow(ui.Window):
         print("on_stop_listener")
 
     def _build_fn(self):
-        print("build_fn")    
+        print("build_fn")   
+
+#  def _calculate_camera(self, freeD):
+#         #Parse the FreeDinfo
+#         bit24 = (1 << 23)
+#         frame_pos_header = str(freeD[0:2])
+#         camera_id = int(freeD[2:4],16)
+
+#         #Rotate: Yaw, Pitch, Roll
+#         _sign = -1 if (int(freeD[4:10], 16) & bit24) != 0 else 1
+#         if _sign > 0:
+#             camera_yaw = _sign * (int(freeD[4:10], 16) & (bit24 - 1)) / 32768
+#         else:# if < 0  (1) Data = complement(~)   (2) then Data & 7FFFFF + 1
+#             camera_yaw = _sign * ((~int(freeD[4:10], 16) & (bit24 - 1)) + 1) / 32768
+#         camera_yaw *= -1
+        
+#         _sign = -1 if (int(freeD[10:16], 16) & bit24) != 0 else 1
+#         if _sign > 0:
+#             camera_pitch = _sign * (int(freeD[10:16], 16) & (bit24 - 1)) / 32768
+#         else:
+#             camera_pitch = _sign * ((~int(freeD[10:16], 16) & (bit24 - 1)) + 1) / 32768
+#         #camera_pitch *= -1
+        
+#         _sign = -1 if (int(freeD[16:22], 16) & bit24) != 0 else 1
+#         if _sign > 0:
+#             camera_roll = _sign * (int(freeD[16:22], 16) & (bit24 - 1)) / 32768
+#         else: # if < 0  1 st complement(~)  then Data & 7FFFFF + 1
+#             camera_roll = _sign * ((~int(freeD[16:22], 16) & (bit24 - 1)) + 1) / 32768
+        
+#         camera_roll *= -1
+        
+#         new_rotate = (camera_pitch, camera_yaw, camera_roll)
+#         # Translate X,Y,Z
+#         _sign = -1 if (int(freeD[22:28], 16) & bit24) != 0 else 1
+#         if _sign > 0:
+#             camera_pos_x = _sign * (int(freeD[22:28], 16) & (bit24 - 1)) / (64000)
+#         else:
+#             camera_pos_x = _sign * (~int(freeD[22:28], 16) & (bit24 - 1) + 1) / (64000)
+
+#         _sign = -1 if (int(freeD[28:34], 16) & bit24) != 0 else 1
+#         if _sign > 0:
+#             camera_pos_y = _sign * (int(freeD[28:34], 16) & (bit24 - 1)) / (64000)    
+#         else:
+#             camera_pos_y = _sign * (~int(freeD[28:34], 16) & (bit24 - 1) + 1) / (64000)
+
+#         _sign = -1 if (int(freeD[34:40], 16) & bit24) != 0 else 1
+#         if _sign > 0:
+#             camera_pos_z = _sign * (int(freeD[34:40], 16) & (bit24 - 1)) / (64000)
+#         else:
+#             camera_pos_z = _sign * (~int(freeD[34:40], 16) & (bit24 - 1)) / (64000)   
+
+#         # RotateYXZ
+#         new_translate = (camera_pos_y, camera_pos_x, camera_pos_z)
+#         #Zoon Focus
+#         #TODO: Depends on Camera HW
+#         camera_zoom = int(freeD[40:46], 16)
+#         camera_focus = int(freeD[46:52], 16)
+
+#         reserve_ = int(freeD[52:56], 16)
+#         freed_crc = int(freeD[56:58], 16)
+#         #check crc further sum all then = crc?
+
+#         camare_update_data = {'rotate': new_rotate, 'pos': new_translate, 'zoom': camera_zoom, 'focus': camera_focus}
+
+#         self._bus.push(self._Udp_update_EVENT, payload=camare_update_data)
